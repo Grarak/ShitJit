@@ -1,6 +1,6 @@
-use std::fs::File;
-use std::{io};
 use std::borrow::BorrowMut;
+use std::fs::File;
+use std::io;
 use std::io::{Error, ErrorKind};
 use std::mem::{size_of, transmute};
 use std::os::unix::fs::FileExt;
@@ -41,18 +41,28 @@ pub struct Nro {
 }
 
 impl Nro {
-    fn new(file: File, header: &NroHeader) -> Self { Nro { file, header: *header } }
+    fn new(file: File, header: &NroHeader) -> Self {
+        Nro {
+            file,
+            header: *header,
+        }
+    }
 
     pub fn get_segment(&self, segment: &NroSegmentHeader) -> io::Result<Vec<u8>> {
         let size = segment.size as usize;
         let offset = segment.memory_offset as usize;
         let mut buf = vec![0u8; size];
 
-        let read_len = self.file.read_at(buf.borrow_mut(), (size_of::<NroHeader>() + offset) as u64)?;
+        let read_len = self
+            .file
+            .read_at(buf.borrow_mut(), (size_of::<NroHeader>() + offset) as u64)?;
         if read_len == size {
             Ok(buf)
         } else {
-            Err(Error::new(ErrorKind::InvalidData, "Can't read segment to the end"))
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                "Can't read segment to the end",
+            ))
         }
     }
 }

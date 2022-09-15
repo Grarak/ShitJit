@@ -1,15 +1,95 @@
-use std::iter::Map;
-use memmap::{MmapMut, MmapOptions};
-use std::collections::HashMap;
-use std::slice::from_raw_parts;
-use dynasmrt::{AssemblyOffset, dynasm, DynasmApi, DynasmLabelApi, Register};
-use iced_x86::{Decoder, DecoderOptions, Instruction};
 use crate::jit::parser::parse_inst;
-use std::{io, slice, mem};
-use std::borrow::{Borrow, BorrowMut};
-use std::io::{Write};
 use bad64::Reg;
 use dynasmrt::x64::Assembler;
+use dynasmrt::{dynasm, DynasmApi};
+use iced_x86::{Decoder, DecoderOptions, Instruction};
+use memmap::MmapMut;
+use std::collections::HashMap;
+use std::mem;
+
+pub mod emit {
+    macro_rules! asm {
+        ($assembler:ident $($t:tt)*) => {
+            dynasm!($assembler
+                $($t)*
+            )
+        }
+    }
+    pub(crate) use asm;
+
+    macro_rules! get_reg {
+        ($context:ident, $assembler:ident, $reg:expr, $retreg:tt) => {
+            let reg_addr = $context.registers.map_addr($reg);
+            emit::asm!($assembler
+                ; mov $retreg, QWORD reg_addr as _
+                ; mov $retreg, QWORD [$retreg]
+            );
+        };
+    }
+    pub(crate) use get_reg;
+
+    macro_rules! call_external {
+        ($assembler:ident, $fun:expr) => {
+            emit::asm!($assembler
+                ; mov rax, QWORD $fun as _
+                ; push rax
+                ; call rax
+                ; pop rax
+            );
+        };
+    }
+    pub(crate) use call_external;
+
+    pub mod nzcv {
+        macro_rules! get_z {
+            ($context:ident, $assembler:ident, $retreg:tt) => {
+                let addr = $context.registers.nzcv.get_addr();
+                emit::asm!($assembler
+                    ; mov $retreg, QWORD addr as _
+                    ; mov $retreg, QWORD [$retreg]
+                    ; sar $retreg, 30
+                    ; and $retreg, 1
+                )
+            };
+        }
+        pub(crate) use get_z;
+
+        macro_rules! update {
+            ($context:ident, $assembler:ident) => {
+                let addr = $context.registers.nzcv.get_addr();
+                emit::asm!($assembler
+                    ; lahf
+                    ; seto al
+
+                    ; xor rcx, rcx
+                    // nz
+                    ; xor rsi, rsi
+                    ; mov si, ax
+                    ; and rsi, 0xC000
+                    ; sal rsi, 16
+                    ; or rcx, rsi
+                    // c
+                    ; xor rsi, rsi
+                    ; mov si, ax
+                    ; xor si, -1 // CF is inverted in ARM
+                    ; and rsi, 0x100
+                    ; sal rsi, 21
+                    ; or rcx, rsi
+                    // v
+                    ; xor rsi, rsi
+                    ; mov si, ax
+                    ; and rsi, 1
+                    ; sal rsi, 28
+                    ; or rcx, rsi
+
+                    ; mov rsi, QWORD addr as _
+                    ; mov QWORD [rsi], rcx
+                )
+            };
+        }
+        pub(crate) use update;
+    }
+}
 
 const JIT_CACHE_SIZE: usize = 1 * 1024 * 1024;
 
@@ -32,55 +112,9 @@ impl NZCV {
         get_addr(&self.value)
     }
 
-    pub fn emit_update(&self, assembler: &mut Assembler) {
-        let addr = self.get_addr();
-        dynasm!(assembler
-            ; .arch x64
-            ; lahf
-            ; seto al
-
-            ; xor rcx, rcx
-            // nz
-            ; xor rsi, rsi
-            ; mov si, ax
-            ; and rsi, 0xC000
-            ; sal rsi, 16
-            ; or rcx, rsi
-            // c
-            ; xor rsi, rsi
-            ; mov si, ax
-            ; xor si, -1
-            ; and rsi, 0x100
-            ; sal rsi, 21
-            ; or rcx, rsi
-            // v
-            ; xor rsi, rsi
-            ; mov si, ax
-            ; and rsi, 1
-            ; sal rsi, 28
-            ; or rcx, rsi
-
-            ; mov rsi, QWORD addr as _
-            ; mov QWORD [rsi], rcx
-            ; mov rax, rcx
-        );
-    }
-
-    pub fn emit_get_z(&self, assembler: &mut Assembler) {
-        let addr = self.get_addr();
-        dynasm!(assembler
-            ; .arch x64
-            ; mov rax, QWORD addr as _
-            ; mov rax, QWORD [rax]
-            ; sar eax, 30
-            ; and rax, 1
-        )
-    }
-
     pub fn emit_set(&self, assembler: &mut Assembler) {
         let addr = self.get_addr();
-        dynasm!(assembler
-            ; .arch x64
+        emit::asm!(assembler
             ; mov rcx, QWORD addr as _
             ; mov QWORD [rcx], rax
         )
@@ -91,7 +125,7 @@ impl NZCV {
 pub struct Registers {
     x0: u64,
     x1: u64,
-    nzcv: NZCV,
+    pub nzcv: NZCV,
 }
 
 impl Registers {
@@ -99,16 +133,12 @@ impl Registers {
         match reg {
             Reg::X0 => &self.x0,
             Reg::X1 => &self.x1,
-            _ => panic!("Unmapped register {}", reg)
+            _ => panic!("Unmapped register {}", reg),
         }
     }
 
     pub fn map_addr(&self, reg: Reg) -> usize {
         get_addr(self.map(reg))
-    }
-
-    pub fn get_nzcv(&self) -> &NZCV {
-        &self.nzcv
     }
 }
 
@@ -123,11 +153,25 @@ pub struct Context {
 impl Context {
     pub fn new(text: Vec<u32>) -> Self {
         let mem = MmapMut::map_anon(JIT_CACHE_SIZE).unwrap();
-        Context { text, mem, cached_functions: HashMap::<usize, usize>::new(), jit_pc: 0, registers: Registers::default() }
+        Context {
+            text,
+            mem,
+            cached_functions: HashMap::<usize, usize>::new(),
+            jit_pc: 0,
+            registers: Registers::default(),
+        }
     }
 
     pub fn run(&mut self) {
         self.execute_fn(0);
+    }
+
+    pub fn get_addr(&self) -> usize {
+        get_addr(self)
+    }
+
+    pub extern "C" fn branch(&mut self, addr: u64) {
+        println!("calling {}", addr);
     }
 
     fn execute_fn(&mut self, addr: usize) {
@@ -145,8 +189,7 @@ impl Context {
                 }
             }
 
-            dynasm!(ops
-                ; .arch x64
+            emit::asm!(ops
                 ; ret
             );
 
@@ -172,23 +215,5 @@ impl Context {
             println!("c: {}", (self.registers.nzcv.value >> 29) & 1);
             println!("v: {}", (self.registers.nzcv.value >> 28) & 1);
         }
-    }
-
-    pub fn emit_set_reg(&self, assembler: &mut Assembler, reg: Reg, value: u64) {
-        let reg_addr = self.registers.map_addr(reg);
-        dynasm!(assembler
-            ; .arch x64
-            ; mov rax, QWORD reg_addr as _
-            ; mov QWORD [rax], value as _
-        );
-    }
-
-    pub fn emit_get_reg(&self, assembler: &mut Assembler, reg: Reg) {
-        let reg_addr = self.registers.map_addr(reg);
-        dynasm!(assembler
-            ; .arch x64
-            ; mov rax, QWORD reg_addr as _
-            ; mov rax, QWORD [rax]
-        );
     }
 }
