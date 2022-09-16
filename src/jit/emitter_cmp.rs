@@ -1,7 +1,7 @@
 use crate::jit::context::{emit, Context};
 use bad64::{Condition, Imm, Operand};
 use dynasmrt::x64::Assembler;
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{DynasmApi, DynasmLabelApi};
 
 pub fn emit_cmp(context: &mut Context, assembler: &mut Assembler, operands: &[Operand]) -> bool {
     assert_eq!(operands.len(), 2);
@@ -30,6 +30,7 @@ pub fn emit_cmn(context: &mut Context, assembler: &mut Assembler, operands: &[Op
     assert_eq!(operands.len(), 2);
     let left_op = &operands[0];
     let right_op = &operands[1];
+
     match left_op {
         Operand::Reg { reg, .. } => match right_op {
             Operand::Imm64 { imm, .. } => match imm {
@@ -64,29 +65,28 @@ pub fn emit_ccmn(context: &mut Context, assembler: &mut Assembler, operands: &[O
         _ => panic!("ccmn should hold a cond"),
     };
 
+    let set_nzcv_label = assembler.new_dynamic_label();
+    emit::asm!(assembler
+        ;; emit::nzcv::get_z!(context, assembler, rax)
+        ; cmp rax, 1
+    );
+
     match cond {
         Condition::NE => {
-            let set_nzcv_label = assembler.new_dynamic_label();
-
             emit::asm!(assembler
-                ;; emit::nzcv::get_z!(context, assembler, rax)
-                ; cmp rax, 1
                 ; je =>set_nzcv_label
             );
-
-            emit_cmn(context, assembler, &[operands[0], operands[1]]);
-
-            emit::asm!(assembler
-                ; call >end
-                ; =>set_nzcv_label
-                ; mov rax, *nzcv as _
-                ; sal rax, 28
-                ; end:
-            );
-
-            context.registers.nzcv.emit_set(assembler);
         }
         _ => panic!("Unsupported condition {}", cond),
     }
+
+    emit_cmn(context, assembler, &[operands[0], operands[1]]);
+
+    emit::asm!(assembler
+        ; call >end
+        ; =>set_nzcv_label
+        ;; emit::nzcv::set!(context, assembler, ((*nzcv) << 28))
+        ; end:
+    );
     true
 }
