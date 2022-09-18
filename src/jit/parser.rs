@@ -1,3 +1,4 @@
+use crate::jit::assembler::instructions_assembler::InstAssembler;
 use crate::jit::context::Context;
 use crate::jit::emitter_arithmetic::{emit_add, emit_adr, emit_sub, emit_subs};
 use crate::jit::emitter_bit::emit_and;
@@ -5,11 +6,11 @@ use crate::jit::emitter_branch::{emit_beq, emit_bne};
 use crate::jit::emitter_cmp::{emit_ccmn, emit_cmn, emit_cmp};
 use crate::jit::emitter_mem::{emit_ldp, emit_mov, emit_str};
 use bad64::Op;
-use dynasmrt::x64::Assembler;
 
-pub fn parse_inst(context: &mut Context, assembler: &mut Assembler, inst: &u32) -> bool {
+pub fn parse_inst(context: &mut Context, assembler: &mut InstAssembler, inst: &u32) -> bool {
     let inst_decoded = bad64::decode(*inst, 0).unwrap();
     println!("{}", inst_decoded);
+
     let operands = inst_decoded.operands();
     let parse = match inst_decoded.op() {
         Op::ADD => emit_add,
