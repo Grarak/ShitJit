@@ -1,6 +1,7 @@
 use crate::jit::assembler::instructions_assembler::InstAssembler;
 use crate::jit::assembler::registers_handler::RegistersHandler;
 use iced_x86::{Code, Instruction, MemoryOperand, Register};
+use std::ptr::NonNull;
 
 macro_rules! get_fn_addr {
     ($fun:expr) => {
@@ -36,8 +37,8 @@ impl InstAssembler {
 
     #[inline]
     pub fn emit_set_var<T>(&mut self, src: T, dest: &mut u64)
-        where
-            Self: EmitSetVar<T>,
+    where
+        Self: EmitSetVar<T>,
     {
         (self as &mut dyn EmitSetVar<T>).emit_set_var(src, dest);
     }

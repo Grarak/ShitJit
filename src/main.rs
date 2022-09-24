@@ -1,8 +1,12 @@
 extern crate core;
+extern crate core;
 
 mod jit;
 mod parser;
+pub(crate) mod tests;
+mod utils;
 
+use crate::utils::memory::page_align;
 use std::env;
 use std::process::exit;
 

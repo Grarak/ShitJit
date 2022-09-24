@@ -8,3 +8,6 @@ edition = "2021"
 bad64 = "0.6.0"
 iced-x86 = "1.17.0"
 memmap = "0.7.0"
+
+[dev-dependencies]
+unicorn-engine = "2.0.0"

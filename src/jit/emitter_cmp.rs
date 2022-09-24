@@ -1,7 +1,7 @@
 use crate::jit::assembler::instructions_assembler::{Inst, InstAssembler};
-use crate::jit::assembler::registers_handler::RegistersHandler;
+use crate::jit::assembler::registers_handler::{map_reg_8, RegistersHandler};
 use crate::jit::context::Context;
-use bad64::{Condition, Imm, Operand, Reg};
+use bad64::{Condition, Imm, Operand};
 use iced_x86::Code;
 
 pub fn emit_cmp(context: &mut Context, asm: &mut InstAssembler, operands: &[Operand]) -> bool {
@@ -18,11 +18,7 @@ pub fn emit_cmp(context: &mut Context, asm: &mut InstAssembler, operands: &[Oper
 
                     context.emit_get_reg(asm, *reg, dest_register);
                     asm.uw_add(Inst::with2(Code::Mov_r64_imm64, value_reg, *imm));
-                    asm.uw_add(Inst::with2(
-                        Code::Sub_r64_rm64,
-                        dest_register,
-                        value_reg,
-                    ));
+                    asm.uw_add(Inst::with2(Code::Sub_r64_rm64, dest_register, value_reg));
                     context.registers.nzcv.emit_update(asm);
                 }
                 _ => panic!("Signed imm value not supported {}", imm),
@@ -49,11 +45,7 @@ pub fn emit_cmn(context: &mut Context, asm: &mut InstAssembler, operands: &[Oper
                     let value_reg = regs_handler.get_free().unwrap();
 
                     context.emit_get_reg(asm, *reg, dest_reg);
-                    asm.uw_add(Inst::with2(
-                        Code::Mov_r64_imm64,
-                        value_reg,
-                        negated_imm,
-                    ));
+                    asm.uw_add(Inst::with2(Code::Mov_r64_imm64, value_reg, negated_imm));
                     asm.uw_add(Inst::with2(Code::Sub_r64_rm64, dest_reg, value_reg));
                     context.registers.nzcv.emit_update(asm);
                 }

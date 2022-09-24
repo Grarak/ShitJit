@@ -4,7 +4,7 @@ use bad64::Operand;
 
 pub fn emit_add(
     context: &mut Context,
-    assembler: &mut InstAssembler,
+    asm: &mut InstAssembler,
     operands: &[Operand],
 ) -> bool {
     assert_eq!(operands.len(), 3);
@@ -13,7 +13,7 @@ pub fn emit_add(
 
 pub fn emit_adr(
     context: &mut Context,
-    assembler: &mut InstAssembler,
+    asm: &mut InstAssembler,
     operands: &[Operand],
 ) -> bool {
     assert_eq!(operands.len(), 2);
@@ -22,7 +22,7 @@ pub fn emit_adr(
 
 pub fn emit_sub(
     context: &mut Context,
-    assembler: &mut InstAssembler,
+    asm: &mut InstAssembler,
     operands: &[Operand],
 ) -> bool {
     assert_eq!(operands.len(), 3);
@@ -31,7 +31,7 @@ pub fn emit_sub(
 
 pub fn emit_subs(
     context: &mut Context,
-    assembler: &mut InstAssembler,
+    asm: &mut InstAssembler,
     operands: &[Operand],
 ) -> bool {
     assert_eq!(operands.len(), 3);

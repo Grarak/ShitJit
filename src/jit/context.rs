@@ -187,7 +187,7 @@ impl Context {
         println!();
     }
 
-    pub fn emit_get_reg(&mut self, assembler: &mut InstAssembler, src: Reg, dest: Register) {
-        assembler.emit_var_to_reg(self.registers.borrow_mut_reg(src), dest);
+    pub fn emit_get_reg(&mut self, asm: &mut InstAssembler, src: Reg, dest: Register) {
+        asm.emit_var_to_reg(self.registers.borrow_mut_reg(src), dest);
     }
 }
