@@ -3,6 +3,7 @@ use std::{fmt, result};
 
 pub mod instructions_assembler;
 pub mod registers_handler;
+pub mod short_inst;
 
 pub struct Error {
     err: String,

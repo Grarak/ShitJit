@@ -1,5 +1,4 @@
 use crate::page_align;
-use core::slice::SlicePattern;
 use std::borrow::{Borrow, BorrowMut};
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read};
@@ -56,95 +55,60 @@ pub struct NroHeader {
 
 pub struct Nro {
     file_content: Vec<u8>,
-    pub header: NroHeader,
 }
 
 impl Nro {
-    fn new(mut file: File, header: &NroHeader) -> io::Result<Self> {
+    fn new(mut file: File) -> io::Result<Self> {
         let mut file_content = Vec::<u8>::new();
-        file.read_to_end(&mut file_content)?;
-        let nro = Nro {
-            file_content,
-            header: *header,
-        };
-        if &nro.get_header().magic == NRO_MAGIC {
+        let len_read = file.read_to_end(&mut file_content)?;
+        let nro = Nro { file_content };
+        if len_read >= size_of::<NroHeader>() && &nro.get_header().magic == NRO_MAGIC {
             Ok(nro)
         } else {
             Err(Error::new(ErrorKind::InvalidData, "Invalid nro file"))
         }
     }
 
-    pub fn get_header(&self) -> Option<&NroHeader> {
-        let header: &NroHeader = unsafe { mem::transmute(self.file_content.as_ptr()) };
-        if &header.magic == NRO_MAGIC {
-            Some(header)
-        } else {
-            None
-        }
+    pub fn get_header(&self) -> &NroHeader {
+        unsafe { mem::transmute(self.file_content.as_ptr()) }
     }
 
-    fn get_mod_header(&self) -> &ModHeader {
-        let header = self.get_header().unwrap();
+    fn get_mod_header(&self) -> Option<&ModHeader> {
+        let header = self.get_header();
         let buf = &self.file_content;
-        let header: &NroHeader = unsafe { mem::transmute(&buf[header.mod0_offset..]) };
-        if &header.magic == NRO_MAGIC {
+        let header: &ModHeader =
+            unsafe { mem::transmute(&buf[header.mod0_offset as usize..].as_ptr()) };
+        if &header.magic == MOD_MAGIC {
             Some(header)
         } else {
             None
         }
-        match self.file.read_at(buf, self.header.mod0_offset as u64) {
-            Ok(_) => {
-                Some(*unsafe { transmute::<&mut [u8; size_of::<ModHeader>()], &ModHeader>(buf) })
-            }
-            Err(_) => None,
-        }
     }
 
-    pub fn get_segment(&self, segment: &NroSegmentHeader) -> io::Result<Vec<u8>> {
+    pub fn get_segment(&self, segment: &NroSegmentHeader) -> &[u8] {
         let size = segment.size as usize;
-        let offset = segment.memory_offset as usize;
-        let mut buf = vec![0u8; size];
-
-        let read_len = self
-            .file
-            .read_at(&mut buf, (size_of::<NroHeader>() + offset) as u64)?;
-        if read_len == size {
-            Ok(buf)
-        } else {
-            Err(Error::new(
-                ErrorKind::InvalidData,
-                "Can't read segment to the end",
-            ))
-        }
+        let offset = size_of::<NroHeader>() + segment.memory_offset as usize;
+        &self.file_content[offset..offset + size]
     }
 
     pub fn build_memory(&self) -> Vec<u8> {
-        let mut memory_size = page_align(self.header.size);
+        let header = self.get_header();
+        let mut memory_size = page_align(header.size);
         let bss_size = page_align(match self.get_mod_header() {
-            None => self.header.bss_size,
+            None => header.bss_size,
             Some(mod_header) => (mod_header.bss_end_offset - mod_header.bss_start_offset) as u32,
         });
 
-        memory_size += bss_size;
+        println!("bss_size {:x}", bss_size);
 
-        Vec::new()
-    }
-}
-
-pub fn parse(path: &String) -> io::Result<Nro> {
-    let file = File::open(path)?;
-
-    let buf = &mut [0u8; size_of::<NroHeader>()];
-    let read_len = file.read_at(buf, 0)?;
-
-    if read_len < size_of::<NroHeader>() {
-        return Err(Error::new(ErrorKind::InvalidData, "Invalid nro file"));
+        let mut mem = Vec::<u8>::new();
+        mem.resize((memory_size + bss_size) as usize, 0);
+        mem[..memory_size as usize].copy_from_slice(&self.file_content[..memory_size as usize]);
+        mem
     }
 
-    let header = unsafe { transmute::<&mut [u8; size_of::<NroHeader>()], &NroHeader>(buf) };
-    if &header.magic == NRO_MAGIC {
-        Ok(Nro::new(file, header))
-    } else {
-        Err(Error::new(ErrorKind::InvalidData, "Invalid nro file"))
+    pub fn parse(path: &String) -> io::Result<Self> {
+        let file = File::open(path)?;
+        Self::new(file)
     }
 }

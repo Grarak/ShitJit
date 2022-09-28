@@ -90,6 +90,7 @@ impl NZCV {
 pub struct Registers {
     x0: u64,
     x1: u64,
+    x28: u64,
     pc: u64,
     pub nzcv: NZCV,
 }
@@ -99,6 +100,7 @@ impl Registers {
         match reg {
             Reg::X0 => &mut self.x0,
             Reg::X1 => &mut self.x1,
+            Reg::X28 => &mut self.x28,
             _ => panic!("Unmapped register {}", reg),
         }
     }
@@ -178,6 +180,7 @@ impl Context {
         println!();
         println!("x0: {:#016x}", self.registers.x0);
         println!("x1: {:#016x}", self.registers.x1);
+        println!("x28: {:#016x}", self.registers.x28);
         println!("pc: {:#016x}", self.registers.pc);
         println!("nzcv: {:#016x}", self.registers.nzcv.value);
         println!("n: {}", (self.registers.nzcv.value >> 31) & 1);
